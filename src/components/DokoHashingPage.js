@@ -72,41 +72,6 @@ const formatLiteral = (type, value) => {
 
 // --- Council structs ---
 const STRUCTS_COUNCIL = {
-  TokenMetadata: {
-    name: 'TokenMetadata', description: 'Token configuration and metadata', category: 'Council',
-    fields: {
-      token_id: { type: 'field', default: defaultForType('field') },
-      name: { type: 'u128', default: defaultForType('u128') },
-      symbol: { type: 'u128', default: defaultForType('u128') },
-      decimals: { type: 'u8', default: defaultForType('u8') },
-      supply: { type: 'u128', default: defaultForType('u128') },
-      max_supply: { type: 'u128', default: defaultForType('u128') },
-      admin: { type: 'address', default: defaultForType('address') },
-      external_authorization_required: { type: 'boolean', default: 'true', options: ['true','false'] },
-      external_authorization_party: { type: 'address', default: defaultForType('address') },
-    },
-  },
-  TokenOwner: {
-    name: 'TokenOwner', description: 'Token ownership record', category: 'Council',
-    fields: {
-      account: { type: 'address', default: defaultForType('address') },
-      token_id: { type: 'field', default: defaultForType('field') },
-    },
-  },
-  ProposalVote: {
-    name: 'ProposalVote', description: 'Governance proposal vote', category: 'Council',
-    fields: {
-      proposal: { type: 'field', default: defaultForType('field') },
-      member: { type: 'address', default: defaultForType('address') },
-    },
-  },
-  ProposalVoterKey: {
-    name: 'ProposalVoterKey', description: 'Voter index', category: 'Council',
-    fields: {
-      proposal: { type: 'field', default: defaultForType('field') },
-      index: { type: 'u8', default: defaultForType('u8') },
-    },
-  },
   AddMember: {
     name: 'AddMember', description: 'Add multisig member', category: 'Council',
     fields: {
@@ -155,37 +120,7 @@ const STRUCTS_COUNCIL = {
 
 // --- Bridge Council structs ---
 const STRUCTS_BRIDGE_COUNCIL = {
-  TokenMetadata: STRUCTS_COUNCIL.TokenMetadata,
-  TokenOwner: STRUCTS_COUNCIL.TokenOwner,
-  AleoProgram: {
-    name: 'AleoProgram', description: 'Aleo program address on chain', category: 'Bridge Council',
-    fields: { chain_id: { type: 'u128', default: defaultForType('u128') }, addr: { type: 'address', default: defaultForType('address') } },
-  },
-  ForeignContract: {
-    name: 'ForeignContract', description: 'Foreign contract descriptor', category: 'Bridge Council',
-    fields: {
-      chain_id: { type: 'u128', default: defaultForType('u128') },
-      addr: { type: '[u8; 32u32]', default: defaultForType('[u8; 32u32]'), placeholder: '[u8; 32u32] e.g. [1u8,2u8,...]' },
-    },
-  },
-  OutTokenMessage: {
-    name: 'OutTokenMessage', description: 'Outbound bridge message', category: 'Bridge Council',
-    fields: {
-      sender_address: { type: 'address', default: defaultForType('address') },
-      dest_token_address: { type: '[u8; 32u32]', default: defaultForType('[u8; 32u32]') },
-      amount: { type: 'u128', default: defaultForType('u128') },
-      receiver_address: { type: '[u8; 32u32]', default: defaultForType('[u8; 32u32]') },
-    },
-  },
-  InTokenMessage: {
-    name: 'InTokenMessage', description: 'Inbound bridge message', category: 'Bridge Council',
-    fields: {
-      sender_address: { type: '[u8; 32u32]', default: defaultForType('[u8; 32u32]') },
-      dest_token_id: { type: 'field', default: defaultForType('field') },
-      amount: { type: 'u128', default: defaultForType('u128') },
-      receiver_address: { type: 'address', default: defaultForType('address') },
-    },
-  },
+
   TbTransferOwnership: {
     name: 'TbTransferOwnership', description: 'Transfer bridge ownership', category: 'Bridge Council',
     fields: {
@@ -238,26 +173,7 @@ const STRUCTS_BRIDGE_COUNCIL = {
 
 // --- Token Service (Walaeo Council) structs ---
 const STRUCTS_TOKEN_SERVICE = {
-  TokenMetadata: STRUCTS_COUNCIL.TokenMetadata,
-  TokenOwner: STRUCTS_COUNCIL.TokenOwner,
-  Holder: {
-    name: 'Holder', description: 'Token holding record', category: 'Token Service',
-    fields: {
-      account: { type: 'address', default: defaultForType('address') },
-      token_id: { type: 'field', default: defaultForType('field') },
-    },
-  },
-  AleoProgram: STRUCTS_BRIDGE_COUNCIL.AleoProgram,
-  ForeignContract: {
-    name: 'ForeignContract', description: 'Foreign contract descriptor', category: 'Token Service',
-    fields: { chain_id: { type: 'u128', default: defaultForType('u128') }, addr: { type: '[u8; 32u32]', default: defaultForType('[u8; 32u32]') } },
-  },
-  OutTokenMessage: STRUCTS_BRIDGE_COUNCIL.OutTokenMessage,
-  InTokenMessage: STRUCTS_BRIDGE_COUNCIL.InTokenMessage,
-  ChainToken: {
-    name: 'ChainToken', description: 'Mapping chain->token_id', category: 'Token Service',
-    fields: { chain_id: { type: 'u128', default: defaultForType('u128') }, token_id: { type: 'field', default: defaultForType('field') } },
-  },
+
   TsTransferOwnership: {
     name: 'TsTransferOwnership', description: 'Transfer TS ownership', category: 'Token Service',
     fields: { tag: { type: 'u8', default: defaultForType('u8') }, id: { type: 'u32', default: defaultForType('u32') }, new_owner: { type: 'address', default: defaultForType('address') } },
