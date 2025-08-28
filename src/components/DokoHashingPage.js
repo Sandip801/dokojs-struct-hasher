@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Hash,
   Copy,
@@ -8,7 +8,6 @@ import {
   Shield,
   Code2,
   ChevronDown,
-  Network as NetworkIcon,
 } from 'lucide-react';
 
 /** Algorithms & outputs (plain JS) */
@@ -28,7 +27,6 @@ const OUTPUTS = [
 
 /* ----------------------------- Contract catalogs ----------------------------- */
 
-// Contract choices
 const CONTRACT_OPTIONS = [
   { value: 'council', label: 'Council' },
   { value: 'bridgeCouncil', label: 'Bridge Council' },
@@ -37,7 +35,6 @@ const CONTRACT_OPTIONS = [
 
 const isFixedByteArray = (t) => /^\[u8;\s*\d+u32\]$/.test(t);
 
-/** Minimal safe defaults for each type */
 const defaultForType = (type) => {
   if (type === 'field') return '123456';
   if (type === 'boolean') return 'true';
@@ -54,23 +51,22 @@ const defaultForType = (type) => {
   if (type === 'i128') return '100000';
   if (type === 'scalar') return '123456';
   if (type === 'group') return '1group';
-  if (isFixedByteArray(type)) return '[]'; // user can paste exact length later
+  if (isFixedByteArray(type)) return '[]';
   return '0';
 };
 
-// Ensures address values are wrapped in quotes; arrays pass through; numbers get suffixes
+// address: pass-through (already quoted or plain), arrays pass-through; others need type suffix
 const formatLiteral = (type, value) => {
-  if (type === 'address') {
-    // const unquoted = String(value).replace(/^"(.*)"$/, '$1');
-    return `${value}`;
-  }
+  if (type === 'address') return `${value}`;
   if (type === 'field') return `${value}field`;
   if (type === 'boolean') return `${value}`;
-  if (isFixedByteArray(type)) return `${value}`; // expect [1u8,2u8,...]
-  return `${value}${type}`; // i/u ints, scalar, group, etc.
+  if (isFixedByteArray(type)) return `${value}`; // e.g. [0u8,1u8,...]
+  return `${value}${type}`;
 };
 
-// --- Council structs ---
+/* ---- Struct catalogs (trimmed to the governance/action structs you listed) --- */
+
+// Council
 const STRUCTS_COUNCIL = {
   AddMember: {
     name: 'AddMember', description: 'Add multisig member', category: 'Council',
@@ -118,9 +114,8 @@ const STRUCTS_COUNCIL = {
   },
 };
 
-// --- Bridge Council structs ---
+// Bridge Council
 const STRUCTS_BRIDGE_COUNCIL = {
-
   TbTransferOwnership: {
     name: 'TbTransferOwnership', description: 'Transfer bridge ownership', category: 'Bridge Council',
     fields: {
@@ -171,9 +166,8 @@ const STRUCTS_BRIDGE_COUNCIL = {
   TbUnpause: { name: 'TbUnpause', description: 'Unpause', category: 'Bridge Council', fields: { tag: { type: 'u8', default: defaultForType('u8') }, id: { type: 'u32', default: defaultForType('u32') } } },
 };
 
-// --- Token Service (Walaeo Council) structs ---
+// Token Service (Walaeo Council)
 const STRUCTS_TOKEN_SERVICE = {
-
   TsTransferOwnership: {
     name: 'TsTransferOwnership', description: 'Transfer TS ownership', category: 'Token Service',
     fields: { tag: { type: 'u8', default: defaultForType('u8') }, id: { type: 'u32', default: defaultForType('u32') }, new_owner: { type: 'address', default: defaultForType('address') } },
@@ -231,7 +225,6 @@ const STRUCTS_TOKEN_SERVICE = {
   WithdrawalCreditsFees: { name: 'WithdrawalCreditsFees', description: 'Withdraw credits & fees', category: 'Token Service', fields: { tag: { type: 'u8', default: defaultForType('u8') }, id: { type: 'u32', default: defaultForType('u32') }, receiver: { type: 'address', default: defaultForType('address') }, amount: { type: 'u64', default: defaultForType('u64') } } },
 };
 
-// Registry
 const CONTRACT_STRUCTS = {
   council: STRUCTS_COUNCIL,
   bridgeCouncil: STRUCTS_BRIDGE_COUNCIL,
@@ -245,9 +238,16 @@ const DokoHashingPage = () => {
   const [dokoWasm, setDokoWasm] = useState(null);
   const [wasmError, setWasmError] = useState('');
 
-  // Config pickers
-  const [contractKind, setContractKind] = useState('council'); // 'council' | 'bridgeCouncil' | 'tokenServiceCouncil'
-  const [selectedStruct, setSelectedStruct] = useState('TokenMetadata');
+  // figure initial contract + first struct name
+  const initialContract = 'council';
+  const firstStructName = (kind) => {
+    const keys = Object.keys(CONTRACT_STRUCTS[kind] || {});
+    return keys.length ? keys[0] : null;
+  };
+
+  const [contractKind, setContractKind] = useState(initialContract);
+  const [selectedStruct, setSelectedStruct] = useState(firstStructName(initialContract) || '');
+
   const [structValues, setStructValues] = useState({});
 
   const [algorithm, setAlgorithm] = useState('bhp256');
@@ -259,107 +259,75 @@ const DokoHashingPage = () => {
   const [isHashing, setIsHashing] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  /**
-   * Robust loader for @doko-js/wasm
-   */
+  /** Robust loader for @doko-js/wasm */
   useEffect(() => {
     let mounted = true;
     const initWasm = async () => {
       try {
         const mod = await import('@doko-js/wasm');
-
-        const tryUrl = (path) => {
-          try { return new URL(path, import.meta.url); } catch { return undefined; }
-        };
-
         if (mod && typeof mod.default === 'function') {
-          try {
-            await mod.default();
-          } catch {
-            const guessPaths = [
-              '@doko-js/wasm/dist/pkg-web_bg.wasm',
-              '@doko-js/wasm/pkg-web_bg.wasm',
-              '@doko-js/wasm/wasm_bg.wasm'
-            ];
-            let initialized = false;
-            for (const p of guessPaths) {
-              const maybeUrl = tryUrl(p);
-              if (!maybeUrl) continue;
-              try { await mod.default(maybeUrl); initialized = true; break; } catch {}
-            }
-            if (!initialized) await mod.default();
-          }
-        } else if (mod && typeof mod.init === 'function') {
-          try { await mod.init(); }
-          catch {
-            const maybeUrl = tryUrl('@doko-js/wasm/dist/pkg-web_bg.wasm');
-            if (maybeUrl) await mod.init(maybeUrl);
-          }
-        } else if (mod && mod.default && typeof mod.default.init === 'function') {
-          await mod.default.init();
+          try { await mod.default(); } catch { await mod.default(); }
         }
-
         const ns =
           (mod && mod.Hasher) ? mod :
           (mod && mod.default && mod.default.Hasher) ? mod.default :
           null;
-
         if (!ns || !ns.Hasher || typeof ns.Hasher.hash !== 'function') {
           throw new Error('Failed to find Hasher.hash export after init');
         }
         if (mounted) { setDokoWasm(ns); setWasmError(''); }
       } catch (e) {
         console.error('Doko WASM init failed:', e);
-        if (mounted) { setDokoWasm(null); setWasmError((e && e.message) ? e.message : 'Failed to initialize @doko-js/wasm'); }
+        if (mounted) { setDokoWasm(null); setWasmError(e?.message || 'Failed to initialize @doko-js/wasm'); }
       }
     };
     initWasm();
     return () => { mounted = false; };
   }, []);
 
-  // Current contract structs
-  const getAllStructsForContract = () => CONTRACT_STRUCTS[contractKind] || STRUCTS_COUNCIL;
+  const allStructsForContract = useMemo(
+    () => CONTRACT_STRUCTS[contractKind] || {},
+    [contractKind]
+  );
 
-  // Current struct object
-  const getCurrentStruct = () => {
-    const all = getAllStructsForContract();
-    return all[selectedStruct] || all.TokenMetadata;
-  };
+  const currentStruct = useMemo(() => {
+    return allStructsForContract[selectedStruct] ||
+           allStructsForContract[firstStructName(contractKind)] ||
+           null;
+  }, [allStructsForContract, selectedStruct, contractKind]);
 
-  // Initialize struct field defaults when contract or struct changes
+  // When switching contract, reset selected struct to that contract's first struct
   useEffect(() => {
-    const all = getAllStructsForContract();
-    const current = all[selectedStruct] || all.TokenMetadata;
-    if (current) {
-      const initialValues = {};
-      Object.keys(current.fields).forEach((field) => {
-        initialValues[field] = current.fields[field].default;
-      });
-      setStructValues(initialValues);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStruct, contractKind]);
+    const first = firstStructName(contractKind);
+    if (!first) { setSelectedStruct(''); setStructValues({}); return; }
+    setSelectedStruct((prev) => (allStructsForContract[prev] ? prev : first));
+  }, [contractKind]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Convert current struct to Aleo/DokoJS input literal (untyped object)
-  const convertToDokoJSFormat = () => {
-    const current = getCurrentStruct();
-    const structFields = [];
-    Object.keys(current.fields).forEach((fieldName) => {
-      const fieldDef = current.fields[fieldName];
-      const value = structValues[fieldName] ?? fieldDef.default;
-      structFields.push(`${fieldName}: ${formatLiteral(fieldDef.type, value)}`);
+  // Initialize field values whenever the active struct changes
+  useEffect(() => {
+    if (!currentStruct) { setStructValues({}); return; }
+    const initial = {};
+    Object.keys(currentStruct.fields).forEach((f) => {
+      initial[f] = currentStruct.fields[f].default;
     });
-    return `{${structFields.join(', ')}}`;
+    setStructValues(initial);
+  }, [currentStruct]);
+
+  const convertToDokoJSFormat = () => {
+    if (!currentStruct) return '{}';
+    const parts = [];
+    Object.keys(currentStruct.fields).forEach((name) => {
+      const def = currentStruct.fields[name];
+      const value = structValues[name] ?? def.default;
+      parts.push(`${name}: ${formatLiteral(def.type, value)}`);
+    });
+    return `{${parts.join(', ')}}`;
   };
 
-  // Preview string (same as above)
   const generateStructString = () => convertToDokoJSFormat();
 
-  // REAL hashing (WASM)
   const hashStructWithDokoJS = (algorithmParam, outputTypeParam, networkParam) => {
-    if (!dokoWasm || !dokoWasm.Hasher || typeof dokoWasm.Hasher.hash !== 'function') {
-      throw new Error('WASM Hasher not ready');
-    }
+    if (!dokoWasm?.Hasher?.hash) throw new Error('WASM Hasher not ready');
     const structString = convertToDokoJSFormat();
     const hash = dokoWasm.Hasher.hash(algorithmParam, structString, outputTypeParam, networkParam);
     return { inputStruct: structString, algorithm: algorithmParam, outputType: outputTypeParam, network: networkParam, hash };
@@ -368,7 +336,6 @@ const DokoHashingPage = () => {
   const handleHash = async () => {
     setIsHashing(true);
     try {
-      await new Promise((res) => setTimeout(res, 150)); // small UX delay
       const result = hashStructWithDokoJS(algorithm, outputType, network);
       setInputStruct(result.inputStruct);
       setHashedValue(result.hash);
@@ -395,8 +362,6 @@ const DokoHashingPage = () => {
   const updateFieldValue = (fieldName, value) => {
     setStructValues((prev) => ({ ...prev, [fieldName]: value }));
   };
-
-  const currentStruct = getCurrentStruct();
 
   return (
     <div className="min-h-screen bg-black">
@@ -437,7 +402,7 @@ const DokoHashingPage = () => {
                       onChange={(e) => {
                         const next = e.target.value;
                         setContractKind(next);
-                        setSelectedStruct('TokenMetadata'); // reasonable default available in all
+                        setSelectedStruct(firstStructName(next) || '');
                       }}
                       className="w-full px-4 py-3 bg-black/30 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-10"
                     >
@@ -465,16 +430,16 @@ const DokoHashingPage = () => {
                       onChange={(e) => setSelectedStruct(e.target.value)}
                       className="w-full px-4 py-3 bg-black/30 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-10"
                     >
-                      {Object.keys(getAllStructsForContract()).map((structName) => (
+                      {Object.keys(allStructsForContract).map((structName) => (
                         <option key={structName} value={structName} className="bg-gray-800">
-                          {structName} - {getAllStructsForContract()[structName].description}
+                          {structName} - {allStructsForContract[structName].description}
                         </option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
                   </div>
                   <p className="text-xs text-gray-400 mt-1">
-                    Category: {currentStruct.category}
+                    Category: {currentStruct?.category || '—'}
                   </p>
                 </div>
 
@@ -522,49 +487,53 @@ const DokoHashingPage = () => {
                 {/* Dynamic Field Inputs */}
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold text-white mb-4">Struct Fields</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {Object.keys(currentStruct.fields).map((fieldName) => {
-                      const fieldDef = currentStruct.fields[fieldName];
-                      const options = fieldDef.options || (fieldDef.type === 'boolean' ? ['true','false'] : null);
-                      return (
-                        <div key={fieldName} className="space-y-2">
-                          <label className="block text-sm font-medium text-gray-300">
-                            {fieldName}
-                            <span className="text-xs text-blue-400 ml-2">({fieldDef.type})</span>
-                          </label>
-                          {options ? (
-                            <div className="relative">
-                              <select
+                  {!currentStruct ? (
+                    <p className="text-sm text-red-300">No structs available for this contract.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {Object.keys(currentStruct.fields).map((fieldName) => {
+                        const fieldDef = currentStruct.fields[fieldName];
+                        const options = fieldDef.options || (fieldDef.type === 'boolean' ? ['true','false'] : null);
+                        return (
+                          <div key={fieldName} className="space-y-2">
+                            <label className="block text-sm font-medium text-gray-300">
+                              {fieldName}
+                              <span className="text-xs text-blue-400 ml-2">({fieldDef.type})</span>
+                            </label>
+                            {options ? (
+                              <div className="relative">
+                                <select
+                                  value={structValues[fieldName] ?? fieldDef.default}
+                                  onChange={(e) => updateFieldValue(fieldName, e.target.value)}
+                                  className="w-full px-3 py-2 bg-black/30 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none pr-8"
+                                >
+                                  {options.map((option) => (
+                                    <option key={option} value={option} className="bg-gray-800">
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
+                                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                              </div>
+                            ) : (
+                              <input
+                                type="text"
                                 value={structValues[fieldName] ?? fieldDef.default}
                                 onChange={(e) => updateFieldValue(fieldName, e.target.value)}
-                                className="w-full px-3 py-2 bg-black/30 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none pr-8"
-                              >
-                                {options.map((option) => (
-                                  <option key={option} value={option} className="bg-gray-800">
-                                    {option}
-                                  </option>
-                                ))}
-                              </select>
-                              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                            </div>
-                          ) : (
-                            <input
-                              type="text"
-                              value={structValues[fieldName] ?? fieldDef.default}
-                              onChange={(e) => updateFieldValue(fieldName, e.target.value)}
-                              placeholder={fieldDef.placeholder || fieldDef.type}
-                              className="w-full px-3 py-2 bg-black/30 border border-white/20 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                            />
-                          )}
-                          {isFixedByteArray(fieldDef.type) && (
-                            <p className="text-[11px] text-gray-400">
-                              Expect Aleo array literal, e.g. <code className="text-gray-300">[0u8,1u8,...]</code>
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                                placeholder={fieldDef.placeholder || fieldDef.type}
+                                className="w-full px-3 py-2 bg-black/30 border border-white/20 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+                              />
+                            )}
+                            {isFixedByteArray(fieldDef.type) && (
+                              <p className="text-[11px] text-gray-400">
+                                Expect Aleo array literal, e.g. <code className="text-gray-300">[0u8,1u8,...]</code>
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Generated Struct Preview */}
@@ -592,7 +561,7 @@ const DokoHashingPage = () => {
                 {/* Hash Button */}
                 <button
                   onClick={handleHash}
-                  disabled={isHashing || !dokoWasm}
+                  disabled={isHashing || !dokoWasm || !currentStruct}
                   className="w-full py-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
                 >
                   {isHashing ? (
@@ -608,10 +577,9 @@ const DokoHashingPage = () => {
                   )}
                 </button>
 
-                {/* Output Section */}
+                {/* Output */}
                 {hashedValue && (
                   <div className="mt-6 space-y-4">
-                    {/* Hash Result */}
                     <div className="p-6 bg-black/30 rounded-2xl border border-white/20">
                       <div className="flex items-center justify-between mb-3">
                         <h3 className="text-lg font-semibold text-white">DokoJS Hash Result</h3>
@@ -632,8 +600,6 @@ const DokoHashingPage = () => {
                         </code>
                       </div>
                     </div>
-
-
                   </div>
                 )}
 
@@ -663,8 +629,8 @@ const DokoHashingPage = () => {
                     </div>
                     <div>
                       <h4 className="font-semibold text-blue-300 text-sm">Struct</h4>
-                      <p className="text-green-300 font-mono">{selectedStruct}</p>
-                      <p className="text-gray-400 text-xs mt-1">{currentStruct.description}</p>
+                      <p className="text-green-300 font-mono">{selectedStruct || '—'}</p>
+                      <p className="text-gray-400 text-xs mt-1">{currentStruct?.description || '—'}</p>
                     </div>
                     <div>
                       <h4 className="font-semibold text-blue-300 text-sm">Algorithm</h4>
@@ -683,7 +649,7 @@ const DokoHashingPage = () => {
                     </div>
                   </div>
                 </div>
-                {dokoWasm && dokoWasm.Hasher && dokoWasm.Hasher.hash && (
+                {dokoWasm?.Hasher?.hash && (
                   <div className="text-xs text-green-400">✅ WASM ready</div>
                 )}
                 {wasmError && <div className="text-xs text-red-400">⚠️ {wasmError}</div>}
